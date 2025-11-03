@@ -1,0 +1,6 @@
+PyQt6>=6.10.0
+pyinstaller>=6.16.0
+pyrekordbox>=0.4.4
+mutagen>=1.47.0
+serato-tools>=3.6.1
+
