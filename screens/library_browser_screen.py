@@ -289,7 +289,7 @@ class LibraryBrowserScreen(QWidget):
         except (ValueError, TypeError):
             # If parsing fails, return original string or N/A
             return time_str if time_str else 'N/A'
-    
+
     def setup_ui(self):
         """Set up the UI"""
         main_layout = QHBoxLayout()
@@ -757,16 +757,13 @@ class LibraryBrowserScreen(QWidget):
             self.track_table.setRowCount(len(tracks))
             
             for row, track in enumerate(tracks):
-                # Track number (first column, 1-based index)
-                track_num = row + 1
-                item = QTableWidgetItem(str(track_num))
-                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                self.track_table.setItem(row, 0, item)
-                
                 # Create items for each column (starting from column 1, shifted by 1)
-                columns = ['title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
+                columns = ['#', 'title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
                 for col, field in enumerate(columns):
                     value = track.get(field, '')
+                    # Format Track Number field properly
+                    if field == '#' and value == 0:
+                        value = row + 1
                     # Format time field properly
                     if field == 'time':
                         value = self._format_time_value(value)
@@ -780,9 +777,10 @@ class LibraryBrowserScreen(QWidget):
                         value = self._format_rating_value(value)
                     else:
                         value = str(value) if value else ''
+
                     item = QTableWidgetItem(value)
                     item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                    self.track_table.setItem(row, col + 1, item)
+                    self.track_table.setItem(row, col, item)
             
             print(f"Displayed {len(tracks)} tracks in table")
                 
@@ -835,30 +833,33 @@ class LibraryBrowserScreen(QWidget):
         self.track_table.setRowCount(0)
         self.track_table.setRowCount(len(self._original_track_order))
         
-        # Repopulate in original order
-        columns = ['title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
+        # Repopulate in original order    
         for row, track in enumerate(self._original_track_order):
-            # Track number
-            item = QTableWidgetItem(str(row + 1))
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.track_table.setItem(row, 0, item)
-            
-            # Other columns
+            # Create items for each column (starting from column 1, shifted by 1)
+            columns = ['#', 'title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
             for col, field in enumerate(columns):
                 value = track.get(field, '')
+                # Format Track Number field properly
+                if field == '#' and value == 0:
+                    value = row + 1
+                # Format time field properly
                 if field == 'time':
                     value = self._format_time_value(value)
+                # Parse key field to extract Name attribute value and convert format
                 elif field == 'key':
                     value = self._parse_key_value(value)
+                    # Convert key to selected format
                     value = convert_key(value, self.key_format)
+                # Format rating as stars
                 elif field == 'rating':
                     value = self._format_rating_value(value)
                 else:
                     value = str(value) if value else ''
+
                 item = QTableWidgetItem(value)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                self.track_table.setItem(row, col + 1, item)
-    
+                self.track_table.setItem(row, col, item)
+
     def on_back(self):
         """Go back to selection screen"""
         if self.parent_window:

@@ -142,6 +142,7 @@ def get_rekordbox_tracks(db, playlist):
         # and also handles smart playlists
         try:
             contents = db.get_playlist_contents(playlist).all()
+            playlist_songs = db.get_playlist_songs(PlaylistID=playlist.ID).all()
         except ValueError as e:
             # Playlist might be a folder
             print(f"Cannot get contents from playlist (might be folder): {e}")
@@ -149,6 +150,7 @@ def get_rekordbox_tracks(db, playlist):
         
         # Get playlist name for debug output
         playlist_name = getattr(playlist, 'Name', getattr(playlist, 'name', 'Unknown'))
+        print(f"len(contents)={len(contents)} ; len(playlist_songs)={len(playlist_songs)}")
         print(f"Found {len(contents)} tracks in playlist '{playlist_name}'")
         
         for content in contents:
@@ -157,6 +159,14 @@ def get_rekordbox_tracks(db, playlist):
                 # For linked fields (Artist, Genre, Key), we need to access the related objects
                 title = getattr(content, 'Title', None) or 'Unknown'
                 
+                # Get Track Number
+                # Track number exists in djmdSongPlaylist, match ContentID to get track number
+
+                if playlist_songs:
+                    track_number = next((getattr(x, 'TrackNo', 0) for x in playlist_songs if x.ContentID == content.ID), 0)
+                else:
+                    track_number = 0
+
                 # Get artist - may be a linked object
                 artist_name = get_artist(content)
                 
@@ -241,6 +251,7 @@ def get_rekordbox_tracks(db, playlist):
                 comments = getattr(content, 'Commnt', None) or getattr(content, 'Comment', None) or ''
                 
                 track_info = {
+                    '#': track_number,
                     'title': title,
                     'artist': artist_name,
                     'time': format_time(time_seconds),
