@@ -762,8 +762,14 @@ class LibraryBrowserScreen(QWidget):
                 for col, field in enumerate(columns):
                     value = track.get(field, '')
                     # Format Track Number field properly
-                    if field == '#' and value == 0:
-                        value = row + 1
+                    if field == '#':
+                        if value == 0:
+                            value = row + 1
+                        item = QTableWidgetItem()
+                        item.setData(Qt.ItemDataRole.DisplayRole, int(value))
+                        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                        self.track_table.setItem(row, col, item)
+                        continue
                     # Format time field properly
                     if field == 'time':
                         value = self._format_time_value(value)
@@ -840,8 +846,14 @@ class LibraryBrowserScreen(QWidget):
             for col, field in enumerate(columns):
                 value = track.get(field, '')
                 # Format Track Number field properly
-                if field == '#' and value == 0:
-                    value = row + 1
+                if field == '#':
+                    if value == 0:
+                        value = row + 1
+                    item = QTableWidgetItem()
+                    item.setData(Qt.ItemDataRole.DisplayRole, int(value))
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                    self.track_table.setItem(row, col, item)
+                    continue
                 # Format time field properly
                 if field == 'time':
                     value = self._format_time_value(value)
