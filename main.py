@@ -37,8 +37,8 @@ class PlaylistLoader(QThread):
                 self.progress.emit(status, progress)
             
             if self.source_type == 'rekordbox':
-                from utils.rekordbox_utils import load_rekordbox_playlists
-                playlists = load_rekordbox_playlists(progress_callback=progress_callback)
+                from utils.rekordbox_utils import load_rekordbox_playlists_OOP
+                playlists = load_rekordbox_playlists_OOP(progress_callback=progress_callback)
             elif self.source_type == 'serato':
                 from utils.serato_utils import load_serato_crates
                 playlists = load_serato_crates(progress_callback=progress_callback)
@@ -226,7 +226,33 @@ def get_app():
     global _global_app
     return _global_app
 
+def run_cli(source_type):
+    from utils.rekordbox_classes import RbLibraryBase, RbFolder, RbIntelligentPlaylist, RbPlaylist, RbTrack, RbPlaylistAttribute, RbTrackFileType
+    if source_type == 'rekordbox':
+        from utils.rekordbox_utils import load_rekordbox_playlists_OOP
+        library = load_rekordbox_playlists_OOP()
+
+        # try printing library
+        def print_tree(node, level=0):
+            indent = "  "*level
+            print(f"{indent}> {node.to_string()}")
+            if type(node) == RbFolder:
+                for x in node.subitems:
+                    print_tree(x, level+1)
+            elif type(node) == RbPlaylist:
+                for x in node.tracks:
+                    print(f"{indent}> {x.to_string()}")
+        #for x in library:
+        #    print_tree(x)
+
+    elif source_type == 'serato':
+        from utils.serato_utils import load_serato_crates
+        playlists = load_serato_crates()
+    else:
+        playlists = []
+    
 
 if __name__ == '__main__':
+    #run_cli("rekordbox")
     app = RexatoApp(sys.argv)
     sys.exit(app.exec())

@@ -13,6 +13,7 @@ from utils.metadata_utils import format_time
 from utils.key_converter import convert_key
 from utils.path_utils import get_resource_path
 import os
+from utils.rekordbox_classes import RbFolder, RbIntelligentPlaylist, RbPlaylist, RbTrack
 
 
 
@@ -580,135 +581,105 @@ class LibraryBrowserScreen(QWidget):
         
         self.setLayout(main_layout)
     
+    def _add_playlist_to_tree(self, pl: RbPlaylist, header_item, parent_item=None):
+        text = f"{pl.name} ({len(pl.tracks)})"
+        item = QTreeWidgetItem()
+        item.setText(0, text)
+        item.setData(0, Qt.ItemDataRole.UserRole, pl)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
+
+        if parent_item:
+            parent_item.addChild(item)
+        else:
+            header_item.addChild(item)
+
+    def _add_folder_to_tree(self, folder: RbFolder, normal_header, intelligent_header, parent_item=None):
+        parent_widget = parent_item if parent_item else normal_header
+
+        folder_item = QTreeWidgetItem(parent_widget)
+        folder_item.setText(0, f"📁 {folder.name}")
+        folder_item.setFlags(folder_item.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
+        folder_item.setCheckState(0, Qt.CheckState.Unchecked)
+        folder_item.setExpanded(True)
+
+        for sub in folder.subitems:
+            if isinstance(sub, RbFolder):
+                self._add_folder_to_tree(sub, normal_header, intelligent_header, folder_item)
+            elif isinstance(sub, RbIntelligentPlaylist):
+                self._add_playlist_to_tree(sub, intelligent_header, folder_item)
+            elif isinstance(sub, RbPlaylist):
+                self._add_playlist_to_tree(sub, normal_header, folder_item)
+
     def update_playlist_list(self):
-        """Update the playlist tree with loaded playlists"""
+        """Update the playlist tree using OOP Rekordbox playlist objects."""
         self.playlist_tree.clear()
-        
-        # Create section headers with checkboxes (using tristate for automatic parent-child sync)
-        # Use terminology based on source type
-        if self.source_type.lower() == 'rekordbox':
-            normal_label = "Playlists"
-            intelligent_label = "Intelligent Playlists"
-        else:  # serato
-            normal_label = "Crates"
-            intelligent_label = "Smart Crates"
-        
+
+        # Section headers
+        normal_label = "Playlists" if self.source_type.lower() == 'rekordbox' else "Crates"
+        intelligent_label = "Intelligent Playlists" if self.source_type.lower() == 'rekordbox' else "Smart Crates"
+
         normal_header = QTreeWidgetItem(self.playlist_tree)
         normal_header.setText(0, normal_label)
         normal_header.setFlags(normal_header.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
         normal_header.setCheckState(0, Qt.CheckState.Unchecked)
-        
+
         intelligent_header = QTreeWidgetItem(self.playlist_tree)
         intelligent_header.setText(0, intelligent_label)
         intelligent_header.setFlags(intelligent_header.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
         intelligent_header.setCheckState(0, Qt.CheckState.Unchecked)
-        
-        # Organize playlists by folder structure (works for both Rekordbox and Serato)
-        # First pass: create all crate items
-        crate_items = {}  # ('header_type', folder_path_tuple, crate_name) -> crate_item
-        folder_items = {}  # ('header_type', folder_path_tuple) -> folder_item or crate_item
-        
-        # Create all crate items
-        for playlist in self.playlists:
-            playlist_name = playlist.get('name', 'Unknown')
-            track_count = playlist.get('track_count', 0)
-            is_smart = playlist.get('is_smart', False)
-            folder_path = playlist.get('folder_path', [])
-            
-            display_text = f"{playlist_name} ({track_count})"
-            
-            item = QTreeWidgetItem()
-            item.setText(0, display_text)
-            item.setData(0, Qt.ItemDataRole.UserRole, playlist)  # Store playlist data
-            
-            # Enable checkbox for playlist items
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(0, Qt.CheckState.Unchecked)
-            
-            # Determine which header to use
-            header_type = 'intelligent' if is_smart else 'normal'
-            
-            # Store crate item for this path
-            crate_path = (header_type, tuple(folder_path), playlist_name)
-            crate_items[crate_path] = item
-        
-        # Second pass: add crates to tree, using crates as folders when needed
-        for playlist in self.playlists:
-            playlist_name = playlist.get('name', 'Unknown')
-            is_smart = playlist.get('is_smart', False)
-            folder_path = playlist.get('folder_path', [])
-            
-            header_type = 'intelligent' if is_smart else 'normal'
-            header = intelligent_header if is_smart else normal_header
-            item = crate_items[(header_type, tuple(folder_path), playlist_name)]
-            
-            # If playlist has folders, navigate/create folder hierarchy
-            if folder_path and len(folder_path) > 0:
-                # Navigate/create folder structure
-                current_parent = header
-                current_path = []
-                
-                for folder_name in folder_path:
-                    current_path.append(folder_name)
-                    path_key = (header_type, tuple(current_path))
-                    
-                    # Check if there's a crate at this exact path with this name
-                    # If so, use the crate item as the folder parent
-                    parent_path = tuple(current_path[:-1]) if len(current_path) > 1 else ()
-                    crate_at_path = crate_items.get((header_type, parent_path, folder_name))
-                    
-                    if crate_at_path:
-                        # Use the crate item as the folder (it can have children)
-                        current_parent = crate_at_path
-                        folder_items[path_key] = crate_at_path
-                    elif path_key not in folder_items:
-                        # No crate at this path, create a folder item
-                        folder_item = QTreeWidgetItem()
-                        folder_item.setText(0, f"📁 {folder_name}")
-                        folder_item.setFlags(folder_item.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
-                        folder_item.setCheckState(0, Qt.CheckState.Unchecked)
-                        current_parent.addChild(folder_item)
-                        folder_items[path_key] = folder_item
-                        # Expand folder by default so playlists are visible
-                        folder_item.setExpanded(True)
-                        current_parent = folder_item
-                    else:
-                        # Folder already exists
-                        current_parent = folder_items[path_key]
-                
-                # Add crate to parent (always add, even if it's used as a folder - it can have children)
-                if current_parent != item:
-                    current_parent.addChild(item)
-            else:
-                # No folder - add directly to header
-                header.addChild(item)
-        
-        # Expand both sections by default
+
+        # Build lookup table so parent/child attachment works in any order
+        self._playlist_by_id = {pl.id: pl for pl in self.playlists}
+
+        # Build the tree (attach children to parents)
+        for pl in self.playlists:
+            if pl.parentId != "root" and pl.parentId in self._playlist_by_id:
+                parent = self._playlist_by_id[pl.parentId]
+                # Only folders can hold subitems
+                if isinstance(parent, RbFolder):
+                    parent.add_subitem(pl)
+
+        # Display root-level folders & playlists
+        for pl in self.playlists:
+            if pl.parentId == "root":   # root item → attach to header
+                if isinstance(pl, RbFolder):
+                    self._add_folder_to_tree(pl, normal_header, intelligent_header)
+                elif isinstance(pl, RbIntelligentPlaylist):
+                    self._add_playlist_to_tree(pl, intelligent_header)
+                elif isinstance(pl, RbPlaylist):
+                    self._add_playlist_to_tree(pl, normal_header)
+
         normal_header.setExpanded(True)
         intelligent_header.setExpanded(True)
-        
-        # Store header references for easy access
+
         self.normal_header = normal_header
         self.intelligent_header = intelligent_header
-    
+
     def on_playlist_selected(self, item, column):
         """Handle playlist selection"""
-        # Don't toggle expand/collapse on header checkbox clicks
+
+        # Click on section header: expand/collapse
         if item.parent() is None and column != 0:
-            # This is a section header (not checkbox), toggle its expanded state
             item.setExpanded(not item.isExpanded())
             return
         
-        # Only load tracks if clicking on a playlist item (has UserRole data, meaning it's a playlist not a folder)
-        playlist_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if playlist_data:
-            print(f"Playlist selected: {playlist_data.get('name', 'Unknown')}")
-            self.current_playlist = playlist_data
+        obj = item.data(0, Qt.ItemDataRole.UserRole)
+
+        # Nothing stored = header/folder with no playlist object
+        if obj is None:
+            return
+
+        # Intelligent or normal playlist
+        if isinstance(obj, RbPlaylist):
+            print(f"Playlist selected: {obj.name}")
+            self.current_playlist = obj
             self.load_tracks()
-        else:
-            # This is a folder item - toggle its expanded state if not clicking checkbox
-            if column != 0:
-                item.setExpanded(not item.isExpanded())
+            return
+
+        # Folder
+        if isinstance(obj, RbFolder) and column != 0:
+            item.setExpanded(not item.isExpanded())
     
     def on_item_changed(self, item, column):
         """Handle checkbox state changes - Qt's AutoTristate handles most of the logic automatically"""
@@ -732,10 +703,8 @@ class LibraryBrowserScreen(QWidget):
         QTimer.singleShot(100, self._load_tracks_async)
     
     def _load_tracks_async(self):
-        """Actually load and display tracks"""
         try:
-            # Tracks should always be preloaded
-            if 'tracks' not in self.current_playlist:
+            if not hasattr(self.current_playlist, 'tracks'):
                 print("Error: No preloaded tracks found")
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Error")
@@ -744,54 +713,47 @@ class LibraryBrowserScreen(QWidget):
                 self._style_message_box(msg_box)
                 msg_box.exec()
                 return
-            
-            tracks = self.current_playlist['tracks']
+
+            tracks = self.current_playlist.tracks
             print(f"Using preloaded tracks: {len(tracks)} tracks")
-            
-            # Store original order for reset functionality
-            self._original_track_order = tracks.copy()
+
+            self._original_track_order = list(tracks)
             self._last_sorted_column = -1
             self._sort_order = Qt.SortOrder.AscendingOrder
-            
-            # Populate table
+
             self.track_table.setRowCount(len(tracks))
-            
+
             for row, track in enumerate(tracks):
-                # Track number (first column, 1-based index)
-                track_num = row + 1
-                item = QTableWidgetItem(str(track_num))
+
+                # Track number
+                item = QTableWidgetItem(str(row + 1))
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 self.track_table.setItem(row, 0, item)
-                
-                # Create items for each column (starting from column 1, shifted by 1)
-                columns = ['title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
-                for col, field in enumerate(columns):
-                    value = track.get(field, '')
-                    # Format time field properly
-                    if field == 'time':
-                        value = self._format_time_value(value)
-                    # Parse key field to extract Name attribute value and convert format
-                    elif field == 'key':
-                        value = self._parse_key_value(value)
-                        # Convert key to selected format
-                        value = convert_key(value, self.key_format)
-                    # Format rating as stars
-                    elif field == 'rating':
-                        value = self._format_rating_value(value)
-                    else:
-                        value = str(value) if value else ''
+
+                values = [
+                    track.title,
+                    track.artist,
+                    self._format_time_value(track.length),
+                    str(track.bpm),
+                    convert_key(self._parse_key_value(track.key), self.key_format),
+                    self._format_rating_value(track.rating),
+                    track.genre,
+                    str(track.filetype),
+                    str(track.year),
+                    track.comments or ''
+                ]
+
+                for col, value in enumerate(values, start=1):
                     item = QTableWidgetItem(value)
                     item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                    self.track_table.setItem(row, col + 1, item)
-            
+                    self.track_table.setItem(row, col, item)
+
             print(f"Displayed {len(tracks)} tracks in table")
-                
+
         except Exception as e:
             print(f"Error loading tracks: {e}")
             import traceback
             traceback.print_exc()
-            
-            # Show error message
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Error")
             msg_box.setText(f"Error loading tracks: {str(e)}")
@@ -823,41 +785,35 @@ class LibraryBrowserScreen(QWidget):
             header.setSortIndicator(logical_index, self._sort_order)
     
     def _reset_to_original_order(self):
-        """Reset table to original track order"""
         if not self._original_track_order or not self.current_playlist:
             return
-        
-        tracks = self.current_playlist.get('tracks', [])
-        if not tracks:
-            return
-        
-        # Repopulate table in original order
+
+        tracks = self.current_playlist.tracks
         self.track_table.setRowCount(0)
         self.track_table.setRowCount(len(self._original_track_order))
-        
-        # Repopulate in original order
-        columns = ['title', 'artist', 'time', 'bpm', 'key', 'rating', 'genre', 'filetype', 'year', 'comments']
+
         for row, track in enumerate(self._original_track_order):
-            # Track number
             item = QTableWidgetItem(str(row + 1))
             item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.track_table.setItem(row, 0, item)
-            
-            # Other columns
-            for col, field in enumerate(columns):
-                value = track.get(field, '')
-                if field == 'time':
-                    value = self._format_time_value(value)
-                elif field == 'key':
-                    value = self._parse_key_value(value)
-                    value = convert_key(value, self.key_format)
-                elif field == 'rating':
-                    value = self._format_rating_value(value)
-                else:
-                    value = str(value) if value else ''
+
+            values = [
+                track.title,
+                track.artist,
+                self._format_time_value(track.length),
+                str(track.bpm),
+                convert_key(self._parse_key_value(track.key), self.key_format),
+                self._format_rating_value(track.rating),
+                track.genre,
+                str(track.filetype),
+                str(track.year),
+                track.comments or ''
+            ]
+
+            for col, value in enumerate(values, start=1):
                 item = QTableWidgetItem(value)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                self.track_table.setItem(row, col + 1, item)
+                self.track_table.setItem(row, col, item)
     
     def on_back(self):
         """Go back to selection screen"""
@@ -1083,7 +1039,7 @@ class LibraryBrowserScreen(QWidget):
             return
         
         # Show confirmation dialog
-        playlist_names = [p['name'] for p in checked_playlists]
+        playlist_names = [p.name for p in checked_playlists]
         
         # Determine conversion direction and message
         if self.source_type.lower() == 'rekordbox' and self.target_type.lower() == 'serato':
@@ -1147,7 +1103,7 @@ class LibraryBrowserScreen(QWidget):
         
         try:
             for idx, playlist in enumerate(playlists):
-                playlist_name = playlist.get('name', 'Unknown')
+                playlist_name = playlist.name
                 
                 # Update playlist progress
                 progress_dialog.update_playlist_progress(idx + 1, len(playlists), playlist_name)
@@ -1205,7 +1161,7 @@ class LibraryBrowserScreen(QWidget):
         
         try:
             for idx, crate in enumerate(crates):
-                crate_name = crate.get('name', 'Unknown')
+                crate_name = crate.name
                 
                 # Update crate progress
                 progress_dialog.update_playlist_progress(idx + 1, len(crates), crate_name)
