@@ -724,9 +724,8 @@ class LibraryBrowserScreen(QWidget):
             self.track_table.setRowCount(len(tracks))
 
             for row, track in enumerate(tracks):
-
-                # Track number
-                item = QTableWidgetItem(str(row + 1))
+                item = QTableWidgetItem()
+                item.setData(Qt.ItemDataRole.DisplayRole, track.seq)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 self.track_table.setItem(row, 0, item)
 
@@ -793,7 +792,8 @@ class LibraryBrowserScreen(QWidget):
         self.track_table.setRowCount(len(self._original_track_order))
 
         for row, track in enumerate(self._original_track_order):
-            item = QTableWidgetItem(str(row + 1))
+            item = QTableWidgetItem()
+            item.setData(Qt.ItemDataRole.DisplayRole, track.seq)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.track_table.setItem(row, 0, item)
 
