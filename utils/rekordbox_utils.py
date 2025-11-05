@@ -16,16 +16,28 @@ def _open_database():
     
     return db
 
+def _fill_intelligent_playlist_with_tracks(pl: RbPlaylist, playlist_track_info_raw):
+    try:
+        for idx, track_info in enumerate(playlist_track_info_raw):
+            track = RbTrack(track_info.ID, idx, track_info.FileNameL, get_artist(track_info), track_info.Title, \
+                get_album(track_info), get_genre(track_info), format_bpm(track_info.BPM), format_time(track_info.Length), \
+                get_key(track_info), track_info.Rating, track_info.ReleaseYear, track_info.Commnt, track_info.FileType)
+            pl.add_track(track)
+    except Exception as e:
+        print(e)
+
 
 def _fill_playlist_with_tracks(db: Rekordbox6Database, pl: RbPlaylist, idx, total, progress_callback=None):
     if progress_callback:
-        progress_callback(status="", progress=f"Loading playlist {idx}/{total}: {pl.name}", debug="")
-    else:
-        print(f"Loading playlist {idx}/{total}: {pl.to_string()}")
+        progress_callback(status="", progress=f"Loading playlist {idx}/{total}: {pl.name}", debug=f"")
+    print(f"Loading playlist {idx}/{total}: {pl.to_string()}")
 
     try:
         playlist_tracklisting_raw = db.get_playlist_songs(PlaylistID=pl.id).all()   # gives List[djmdSongPlaylist]
         playlist_track_info_raw = db.get_playlist_contents(pl.id).all()             # gives List[djmdContent]
+        if len(playlist_tracklisting_raw) == 0:
+            # likely an intelligent playlist
+            _fill_intelligent_playlist_with_tracks(pl, playlist_track_info_raw)
         track_by_id = {x.ID: x for x in playlist_track_info_raw}
         for track_raw in playlist_tracklisting_raw:
             track_info = track_by_id.get(track_raw.ContentID)
@@ -38,6 +50,12 @@ def _fill_playlist_with_tracks(db: Rekordbox6Database, pl: RbPlaylist, idx, tota
                 print(f"Unable to get info for track: {track_raw}")
     except Exception as e:
         print(e)
+
+    if len(pl.tracks) < 1:
+        print(f"Something went wrong: {pl.to_string()} {type(pl)}")
+    
+    print(f"Loaded {len(pl.tracks)} tracks")
+
 
 def _fill_folder_with_playlists(folders: List[RbFolder], playlists: List[RbPlaylist]):
     folder_by_id = {x.id: x for x in folders}
