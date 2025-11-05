@@ -23,55 +23,48 @@ def get_attr(obj, *attrs):
     return None
 
 
-def get_artist(content):
-    """Get artist name from Rekordbox content object"""
+def get_album(content):
+    """Get album name from djmdContent -> djmdAlbum"""
     try:
-        # Try Artist relationship (SQLAlchemy relationship)
-        if hasattr(content, 'Artist') and content.Artist:
-            artist = content.Artist
-            # Artist might be a DjmdArtist object with Name attribute
-            if hasattr(artist, 'Name'):
-                return artist.Name or 'Unknown'
-            elif hasattr(artist, 'name'):
-                return artist.name or 'Unknown'
-        # Try ArtistID (just an ID, would need database lookup)
-        elif hasattr(content, 'ArtistID') and content.ArtistID:
-            # ArtistID is just an ID, would need database lookup to get name
-            # For now, return Unknown
-            return 'Unknown'
-        # Try lowercase
-        elif hasattr(content, 'artist'):
-            artist = content.artist
-            if hasattr(artist, 'Name'):
-                return artist.Name or 'Unknown'
-            elif hasattr(artist, 'name'):
-                return artist.name or 'Unknown'
+        djmdAlbum = content.Album
+        if djmdAlbum and djmdAlbum.Name:
+            return djmdAlbum.Name
+        return 'Unknown'
+    except Exception as e:
+        print(f"Error getting artist: {e}")
+    return 'Unknown'
+
+def get_artist(content):
+    """Get artist name from djmdContent -> djmdArtist"""
+    try:
+        djmdArtist = content.Artist
+        if djmdArtist and djmdArtist.Name:
+            return djmdArtist.Name
+        return 'Unknown'
     except Exception as e:
         print(f"Error getting artist: {e}")
     return 'Unknown'
 
 
 def get_genre(content):
-    """Get genre from Rekordbox content object"""
+    """Get genre from djmdContent -> djmdGenre"""
     try:
-        # Try Genre relationship (SQLAlchemy relationship)
-        if hasattr(content, 'Genre') and content.Genre:
-            genre = content.Genre
-            # Genre might be a DjmdGenre object with Name attribute
-            if hasattr(genre, 'Name'):
-                return genre.Name or 'N/A'
-            elif hasattr(genre, 'name'):
-                return genre.name or 'N/A'
-        # Try GenreID (just an ID, would need database lookup)
-        elif hasattr(content, 'GenreID') and content.GenreID:
-            return 'N/A'  # Would need database query to get genre name from ID
-        # Try lowercase
-        elif hasattr(content, 'genre') and content.genre:
-            genre = content.genre
-            if hasattr(genre, 'Name'):
-                return genre.Name or 'N/A'
-            elif hasattr(genre, 'name'):
-                return genre.name or 'N/A'
+        djmdGenre = content.Genre
+        if djmdGenre and djmdGenre.Name:
+            return djmdGenre.Name
+        return 'N/A'
+    except Exception as e:
+        print(f"Error getting genre: {e}")
+    return 'N/A'
+
+
+def get_key(content):
+    """Get key from djmdContent -> djmdKey"""
+    try:
+        djmdKey = content.Key
+        if djmdKey and djmdKey.ScaleName:
+            return djmdKey.ScaleName
+        return 'N/A'
     except Exception as e:
         print(f"Error getting genre: {e}")
     return 'N/A'
@@ -251,6 +244,7 @@ def get_audio_metadata(file_path):
             if hasattr(audio_file, 'info') and audio_file.info:
                 duration = getattr(audio_file.info, 'length', 0) or 0
             
+            # return RbTrack
             return {
                 'title': title or os.path.splitext(os.path.basename(file_path))[0],
                 'artist': artist or 'Unknown',
