@@ -3,10 +3,13 @@ Utilities for working with Serato data
 """
 
 import os
-import platform
+from platform import system
 from pathlib import Path
 from typing import List, Dict
 from .metadata_utils import get_audio_metadata, get_basic_metadata
+from .serato_classes import SeratoTrack, SeratoCrate, SUBCRATES_FOLDER, SERATO_BASE_FOLDER
+from string import ascii_uppercase
+
 
 try:
     from serato_tools.crate import Crate
@@ -17,34 +20,75 @@ except ImportError as e:
         "serato-tools is required but not installed. "
         "Install it with: pip install serato-tools"
     ) from e
+        
 
-
-def _locate_serato_dirs() -> List[str]:
-    system = platform.system()
-    serato_dirs = [SERATO_DIR]
-    if system == "Windows":
-        # handle windows search
-        from string import ascii_uppercase
+def _get_serato_subcrates_dir() -> List[str]:
+    system_os = system()
+    subcrates_dirs = []
+    if system_os == "Windows":
+        # enum for drives, search each drive
         for drive_letter in ascii_uppercase:
-            path = os.path.join(f"{drive_letter}:", "_Serato_")
-            if os.path.exists(path):
-                serato_dirs.append(path)
-    elif system == "darwin":
-        try:
-            for drive in os.listdir("/Volumes"):
-                path = os.path.join("/Volumes", drive, "_Serato_")
-                if os.path.isdir(path):
-                    serato_dirs.append(path)
-        except Exception as e:
-            print(f"Unable to look for serato folders: {e}")
+            if drive_letter == "C":
+                drive = SERATO_DIR # use serato-tools provided dir
+            else:
+                drive = os.path.join(drive_letter, SERATO_BASE_FOLDER)
+            
+            dir = os.path.join(drive, SUBCRATES_FOLDER)
+            if dir and os.path.isdir(dir):
+                print(f"Found possible subcrates in {dir}")
+                subcrates_dirs.append(dir)
+
+    elif system_os == "Darwin":
+        # check if default serato dir exists
+        dir = os.path.join(SERATO_DIR, SUBCRATES_FOLDER)
+        if dir and os.path.isdir(dir):
+            subcrates_dirs.append(dir)
+        # enum for /Volumes
+        for vols in os.listdir("/Volumes"):
+            dir = os.path.join(vols, SERATO_BASE_FOLDER, SUBCRATES_FOLDER)
+            if dir and os.path.isdir(dir):
+                print(f"Found possible subcrates in {dir}")
+                subcrates_dirs.append(dir)
     else:
-        print(f"Non supported system!")
-    return serato_dirs
+        print(system_os)
+    return subcrates_dirs
+        
+def _add_tracks_into_crate(crate: SeratoCrate):
+    crate_data = Crate(crate.filepath)
+    if crate_data:
+        track_paths = crate_data.get_track_paths()
+        for track_path in track_paths:
+            track = SeratoTrack(track_path)
+            crate.add_track(track)
+            print(f"Added {track.to_string()} into {crate.to_string()}")
 
 
-def _get_serato_subcrates_dir() -> str:
-    """Get the Serato Subcrates directory path"""
-    return os.path.join(SERATO_DIR, Crate.DIR)
+def load_serato_crates_OOP() -> List[SeratoCrate]:
+    # look for possible locations of _Serato_ directories
+    subcrate_dirs = _get_serato_subcrates_dir()
+    serato_library = []
+
+    # for each serato directory, look for crates
+    # if crate exists, get crate from List[SeratoCrate]
+    # else, create crate
+    # add tracks into crate
+    for subcrate_dir in subcrate_dirs:
+        # look for crates in dir
+        crates = [x for x in os.listdir(subcrate_dir) if x.endswith(".crate")]
+        print(crates)
+        for crate_path in crates:
+            crate = SeratoCrate(crate_path)
+            _add_tracks_into_crate(crate)
+            serato_library.append(crate)
+            print(f"Loaded crate: {crate.to_string()}")
+            
+    print(serato_library)
+    return serato_library
+
+
+# def _get_serato_subcrates_dir() -> str:
+#     """Get the Serato Subcrates directory path"""
+#     return os.path.join(SERATO_DIR, Crate.DIR)
 
 
 def _extract_folder_path_from_crate_path(crate_path: str) -> List[str]:
