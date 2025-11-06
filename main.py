@@ -246,13 +246,17 @@ def run_cli(source_type):
         #    print_tree(x)
 
     elif source_type == 'serato':
-        from utils.serato_utils import load_serato_crates
-        playlists = load_serato_crates()
+        from utils.serato_utils import load_serato_crates_OOP
+        playlists = load_serato_crates_OOP()
+
+        
     else:
         playlists = []
     
 
 if __name__ == '__main__':
     #run_cli("rekordbox")
-    app = RexatoApp(sys.argv)
-    sys.exit(app.exec())
+    run_cli("serato")
+    
+    #app = RexatoApp(sys.argv)
+    #sys.exit(app.exec())
