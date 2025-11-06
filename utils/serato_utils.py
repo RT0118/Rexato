@@ -3,6 +3,7 @@ Utilities for working with Serato data
 """
 
 import os
+import platform
 from pathlib import Path
 from typing import List, Dict
 from .metadata_utils import get_audio_metadata, get_basic_metadata
@@ -16,6 +17,29 @@ except ImportError as e:
         "serato-tools is required but not installed. "
         "Install it with: pip install serato-tools"
     ) from e
+
+
+def _locate_serato_dirs() -> List[str]:
+    system = platform.system()
+    serato_dirs = [SERATO_DIR]
+    if system == "Windows":
+        # handle windows search
+        from string import ascii_uppercase
+        for drive_letter in ascii_uppercase:
+            path = os.path.join(f"{drive_letter}:", "_Serato_")
+            if os.path.exists(path):
+                serato_dirs.append(path)
+    elif system == "darwin":
+        try:
+            for drive in os.listdir("/Volumes"):
+                path = os.path.join("/Volumes", drive, "_Serato_")
+                if os.path.isdir(path):
+                    serato_dirs.append(path)
+        except Exception as e:
+            print(f"Unable to look for serato folders: {e}")
+    else:
+        print(f"Non supported system!")
+    return serato_dirs
 
 
 def _get_serato_subcrates_dir() -> str:
