@@ -244,7 +244,7 @@ def get_audio_metadata(file_path):
             if hasattr(audio_file, 'info') and audio_file.info:
                 duration = getattr(audio_file.info, 'length', 0) or 0
             
-            # return RbTrack
+            # return track info as dict
             return {
                 'title': title or os.path.splitext(os.path.basename(file_path))[0],
                 'artist': artist or 'Unknown',
@@ -257,6 +257,7 @@ def get_audio_metadata(file_path):
                 'year': year or 'N/A',
                 'comments': comments or '',
                 'path': file_path,  # Include file path for conversion
+                'album': '', # NOT IMPLEMENTED 
             }
         except ImportError:
             return get_basic_metadata(file_path)
