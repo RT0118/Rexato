@@ -14,9 +14,7 @@ from utils.key_converter import convert_key
 from utils.path_utils import get_resource_path
 import os
 from utils.rekordbox_classes import RbFolder, RbIntelligentPlaylist, RbPlaylist, RbTrack
-
-
-
+from utils.serato_classes import SeratoCrate, SeratoTrack
 
 class SmartResizeTable(QTableWidget):
     """Table with stretch-by-default columns that become interactive when manually resized"""
@@ -581,7 +579,20 @@ class LibraryBrowserScreen(QWidget):
         
         self.setLayout(main_layout)
     
-    def _add_playlist_to_tree(self, pl: RbPlaylist, header_item, parent_item=None):
+    def _add_serato_crate_to_tree(self, crate: SeratoCrate, parent_item):
+        text = f"📦 {crate.name} ({len(crate.tracks)})"
+        item = QTreeWidgetItem(parent_item)
+        item.setText(0, text)
+        item.setData(0, Qt.ItemDataRole.UserRole, crate)
+
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
+        item.setExpanded(True)
+
+        for sub in crate.subcrates:
+            self._add_serato_crate_to_tree(sub, item)
+
+    def _rb_add_playlist_to_tree(self, pl: RbPlaylist, header_item, parent_item=None):
         text = f"{pl.name} ({len(pl.tracks)})"
         item = QTreeWidgetItem()
         item.setText(0, text)
@@ -594,7 +605,7 @@ class LibraryBrowserScreen(QWidget):
         else:
             header_item.addChild(item)
 
-    def _add_folder_to_tree(self, folder: RbFolder, normal_header, intelligent_header, parent_item=None):
+    def _rb_add_folder_to_tree(self, folder: RbFolder, normal_header, intelligent_header, parent_item=None):
         parent_widget = parent_item if parent_item else normal_header
 
         folder_item = QTreeWidgetItem(parent_widget)
@@ -605,14 +616,14 @@ class LibraryBrowserScreen(QWidget):
 
         for sub in folder.subitems:
             if isinstance(sub, RbFolder):
-                self._add_folder_to_tree(sub, normal_header, intelligent_header, folder_item)
+                self._rb_add_folder_to_tree(sub, normal_header, intelligent_header, folder_item)
             elif isinstance(sub, RbIntelligentPlaylist):
-                self._add_playlist_to_tree(sub, intelligent_header, folder_item)
+                self._rb_add_playlist_to_tree(sub, intelligent_header, folder_item)
             elif isinstance(sub, RbPlaylist):
-                self._add_playlist_to_tree(sub, normal_header, folder_item)
+                self._rb_add_playlist_to_tree(sub, normal_header, folder_item)
 
     def update_playlist_list(self):
-        """Update the playlist tree using OOP Rekordbox playlist objects."""
+        """Update the playlist tree using RbPlaylist/SeratoCrate"""
         self.playlist_tree.clear()
 
         # Section headers
@@ -629,32 +640,45 @@ class LibraryBrowserScreen(QWidget):
         intelligent_header.setFlags(intelligent_header.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
         intelligent_header.setCheckState(0, Qt.CheckState.Unchecked)
 
-        # Build lookup table so parent/child attachment works in any order
-        self._playlist_by_id = {pl.id: pl for pl in self.playlists}
+        if self.source_type.lower() == 'rekordbox':
+            # Build lookup table so parent/child attachment works in any order
+            self._playlist_by_id = {pl.id: pl for pl in self.playlists}
 
-        # Build the tree (attach children to parents)
-        for pl in self.playlists:
-            if pl.parentId != "root" and pl.parentId in self._playlist_by_id:
-                parent = self._playlist_by_id[pl.parentId]
-                # Only folders can hold subitems
-                if isinstance(parent, RbFolder):
-                    parent.add_subitem(pl)
+            # Build the tree (attach children to parents)
+            for pl in self.playlists:
+                if pl.parentId != "root" and pl.parentId in self._playlist_by_id:
+                    parent = self._playlist_by_id[pl.parentId]
+                    # Only folders can hold subitems
+                    if isinstance(parent, RbFolder):
+                        parent.add_subitem(pl)
 
-        # Display root-level folders & playlists
-        for pl in self.playlists:
-            if pl.parentId == "root":   # root item → attach to header
-                if isinstance(pl, RbFolder):
-                    self._add_folder_to_tree(pl, normal_header, intelligent_header)
-                elif isinstance(pl, RbIntelligentPlaylist):
-                    self._add_playlist_to_tree(pl, intelligent_header)
-                elif isinstance(pl, RbPlaylist):
-                    self._add_playlist_to_tree(pl, normal_header)
+            # Display root-level folders & playlists
+            for pl in self.playlists:
+                if pl.parentId == "root":   # root item → attach to header
+                    if isinstance(pl, RbFolder):
+                        self._rb_add_folder_to_tree(pl, normal_header, intelligent_header)
+                    elif isinstance(pl, RbIntelligentPlaylist):
+                        self._rb_add_playlist_to_tree(pl, intelligent_header)
+                    elif isinstance(pl, RbPlaylist):
+                        self._rb_add_playlist_to_tree(pl, normal_header)
 
-        normal_header.setExpanded(True)
-        intelligent_header.setExpanded(True)
+            normal_header.setExpanded(True)
+            intelligent_header.setExpanded(True)
 
-        self.normal_header = normal_header
-        self.intelligent_header = intelligent_header
+            self.normal_header = normal_header
+            self.intelligent_header = intelligent_header
+        elif self.source_type.lower() == 'serato':
+            header = QTreeWidgetItem(self.playlist_tree)
+            header.setText(0, "Serato Crates")
+            header.setFlags(header.flags() | Qt.ItemFlag.ItemIsAutoTristate | Qt.ItemFlag.ItemIsUserCheckable)
+            header.setCheckState(0, Qt.CheckState.Unchecked)
+            header.setExpanded(True)
+
+            for crate in self.playlists:   # self.playlists now contains top-level SeratoCrate objects
+                self._add_serato_crate_to_tree(crate, header)
+        else:
+            print("UNAVAILABLE OPTION SELECTED???")
+
 
     def on_playlist_selected(self, item, column):
         """Handle playlist selection"""
@@ -670,17 +694,24 @@ class LibraryBrowserScreen(QWidget):
         if obj is None:
             return
 
-        # Intelligent or normal playlist
+        # Rekordbox Intelligent or normal playlist
         if isinstance(obj, RbPlaylist):
             print(f"Playlist selected: {obj.name}")
             self.current_playlist = obj
             self.load_tracks()
             return
 
-        # Folder
+        # Rekordbox Folders
         if isinstance(obj, RbFolder) and column != 0:
             item.setExpanded(not item.isExpanded())
-    
+
+        # Serato Crates
+        if isinstance(obj, SeratoCrate):
+            self.current_playlist = obj
+            self.load_tracks()
+            return
+
+
     def on_item_changed(self, item, column):
         """Handle checkbox state changes - Qt's AutoTristate handles most of the logic automatically"""
         # With ItemIsAutoTristate, Qt automatically:
@@ -704,7 +735,7 @@ class LibraryBrowserScreen(QWidget):
     
     def _load_tracks_async(self):
         try:
-            if not hasattr(self.current_playlist, 'tracks'):
+            if not isinstance(self.current_playlist, (RbPlaylist, SeratoCrate)):
                 print("Error: No preloaded tracks found")
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Error")
@@ -713,7 +744,7 @@ class LibraryBrowserScreen(QWidget):
                 self._style_message_box(msg_box)
                 msg_box.exec()
                 return
-
+            
             tracks = self.current_playlist.tracks
             print(f"Using preloaded tracks: {len(tracks)} tracks")
 

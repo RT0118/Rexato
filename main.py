@@ -33,12 +33,13 @@ class PlaylistLoader(QThread):
         """Load playlists in background thread"""
         try:
             # Progress callback that emits signals
-            def progress_callback(status, progress, debug):
+            def progress_callback(status, progress, caller_function):
                 self.progress.emit(status, progress)
+                print(f"[{caller_function}]: {progress}")   # easier print tracing
             
             if self.source_type == 'rekordbox':
-                from utils.rekordbox_utils import load_rekordbox_playlists_OOP
-                playlists = load_rekordbox_playlists_OOP(progress_callback=progress_callback)
+                from utils.rekordbox_utils import load_rekordbox_playlists
+                playlists = load_rekordbox_playlists(progress_callback=progress_callback)
             elif self.source_type == 'serato':
                 from utils.serato_utils import load_serato_crates
                 playlists = load_serato_crates(progress_callback=progress_callback)
@@ -246,7 +247,7 @@ def run_cli(source_type):
         #    print_tree(x)
 
     elif source_type == 'serato':
-        from utils.serato_utils import load_serato_crates_OOP
+        from utils.serato_utils import load_serato_crates, load_serato_crates_OOP
         playlists = load_serato_crates_OOP()
 
         
@@ -256,7 +257,7 @@ def run_cli(source_type):
 
 if __name__ == '__main__':
     #run_cli("rekordbox")
-    run_cli("serato")
+    #run_cli("serato")
     
-    #app = RexatoApp(sys.argv)
-    #sys.exit(app.exec())
+    app = RexatoApp(sys.argv)
+    sys.exit(app.exec())
