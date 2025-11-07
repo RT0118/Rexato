@@ -2,12 +2,14 @@
 Utilities for working with Serato data
 """
 
+
 import os
+from os import sep as OS_SEPARATOR
 from platform import system
 from pathlib import Path
 from typing import List, Dict
 from .metadata_utils import get_audio_metadata, get_basic_metadata
-from .serato_classes import SeratoTrack, SeratoCrate, SUBCRATES_FOLDER, SERATO_BASE_FOLDER
+from .serato_classes import SeratoTrack, SeratoCrate, SUBCRATES_FOLDER, SERATO_BASE_FOLDER, CRATE_SEPARATOR
 from string import ascii_uppercase
 
 
@@ -22,7 +24,7 @@ except ImportError as e:
     ) from e
         
 
-def _get_serato_subcrates_dir() -> List[str]:
+def get_available_serato_subcrates_dir(progress_callback) -> List[str]:
     system_os = system()
     subcrates_dirs = []
     if system_os == "Windows":
@@ -31,11 +33,11 @@ def _get_serato_subcrates_dir() -> List[str]:
             if drive_letter == "C":
                 drive = SERATO_DIR # use serato-tools provided dir
             else:
-                drive = os.path.join(drive_letter, SERATO_BASE_FOLDER)
+                drive = os.path.join(f"{drive_letter}:", SERATO_BASE_FOLDER)
             
             dir = os.path.join(drive, SUBCRATES_FOLDER)
             if dir and os.path.isdir(dir):
-                print(f"Found possible subcrates in {dir}")
+                progress_callback(status="", progress=f"Found subcrate directory in {dir}", caller_function="get_available_serato_subcrates_dir")
                 subcrates_dirs.append(dir)
 
     elif system_os == "Darwin":
@@ -47,212 +49,117 @@ def _get_serato_subcrates_dir() -> List[str]:
         for vols in os.listdir("/Volumes"):
             dir = os.path.join(vols, SERATO_BASE_FOLDER, SUBCRATES_FOLDER)
             if dir and os.path.isdir(dir):
-                print(f"Found possible subcrates in {dir}")
+                progress_callback(status="", progress=f"Found subcrate directory in {dir}", caller_function="get_available_serato_subcrates_dir")
                 subcrates_dirs.append(dir)
     else:
         print(system_os)
     return subcrates_dirs
+
+
+def parse_crate_path(filename: str):
+    """Split crate's filename by '%%' separator"""
+    name = filename.replace(".crate", "")
+    parts = name.split(CRATE_SEPARATOR)
+    if len(parts) == 1:
+        return [], parts[-1]
+    return parts[:-1], parts[-1]
+
+def _create_serato_track_from_metadata(track_number, meta: dict):
+    return SeratoTrack(track_number, meta.get('path'), meta.get('title'), meta.get('artist'), \
+        meta.get('album'),meta.get('time'), meta.get('bpm'), meta.get('key'), meta.get('rating'), \
+        meta.get('genre'), meta.get('filetype'), meta.get('year'), meta.get('comments'))
+
+def _load_tracks_into_crate(crate: SeratoCrate):
+    crate_data = Crate(crate.crate_filepath)
+    base_drive = os.path.splitdrive(crate.crate_filepath)[0]
+    tracks_in_crate = crate_data.get_track_paths()
+
+    for idx, track_path in enumerate(tracks_in_crate):
+        # get metadata
+        full_path = f"{base_drive}{OS_SEPARATOR}{track_path}"
+        track_info_dict = get_audio_metadata(full_path)
+        track = _create_serato_track_from_metadata(idx+1, track_info_dict)
+        crate.add_track(track)
+
+def load_serato_library(directory_path: str, progress_callback) -> List[SeratoCrate]:
+    """Simple one-function approach to build the crate tree"""
+    path = Path(directory_path)
+    all_crates = {}
+    
+    # Create all crate objects
+    for fdr_file in path.glob("*.crate"):
+        crate_filename = fdr_file.stem
+        print(f"Found: {crate_filename} in {fdr_file}")
+
+        _, name = parse_crate_path(crate_filename)
+
+        crate = SeratoCrate(str(fdr_file), name)
+        all_crates[crate_filename] = crate
+    
+    # Build hierarchy
+    root_crates = []
+    for crate_name, crate in all_crates.items():
+        if CRATE_SEPARATOR in crate_name:
+            # Find and add to parent
+            parent_name = CRATE_SEPARATOR.join(crate_name.split(CRATE_SEPARATOR)[:-1])
+            parent_crate = all_crates.get(parent_name)
+            if parent_crate:
+                parent_crate.add_subcrate(crate)
+                #print(f"Placed {crate.to_string()} in parent {parent_crate.to_string()}")
+        else:
+            # This is a root-level crate
+            root_crates.append(crate)
+            #print(f"Added root crate {crate.to_string()}")
+    
+    # Parse tracks for all crates
+    all_crate_values = all_crates.values()
+    total = len(all_crate_values)
+    for idx, crate in enumerate(all_crate_values):
+        progress_callback(status="", progress=f"Loading crate {idx+1}/{total}: {crate.name}", caller_function="load_serato_library")
+        _load_tracks_into_crate(crate)
+    
+    return root_crates
+
+
+def _debug_print_crate_tree(crates: List[SeratoCrate]):
+    """Debugging function to pretty print serato crates in CLI"""
+    
+    def _print_crate(crate: SeratoCrate, level: int, prefix: str, is_last: bool):
+        # Tree connectors
+        connector = "└── " if is_last else "├── "
+        indent = "    " * (level - 1) if level > 0 else ""
         
-def _add_tracks_into_crate(crate: SeratoCrate):
-    crate_data = Crate(crate.filepath)
-    if crate_data:
-        track_paths = crate_data.get_track_paths()
-        for track_path in track_paths:
-            track = SeratoTrack(track_path)
-            crate.add_track(track)
-            print(f"Added {track.to_string()} into {crate.to_string()}")
+        crate_name = Path(crate.crate_filepath).stem.split('%%')[-1]
+        print(f"{indent}{connector}📦 {crate_name} "
+              f"({len(crate.tracks)} tracks, {len(crate.subcrates)} subcrates)")
+        
+        # Print tracks
+        if crate.tracks:
+            track_indent = "    " * level
+            for i, track in enumerate(crate.tracks):
+                track_connector = "└── " if i == len(crate.tracks) - 1 else "├── "
+                track_name = Path(track.path).name
+                print(f"{track_indent}{track_connector}🎵 {track_name}")
+        
+        # Print subcrates
+        for i, subcrate in enumerate(crate.subcrates):
+            is_last_subcrate = i == len(crate.subcrates) - 1
+            new_prefix = prefix + ("    " if is_last else "│   ")
+            _print_crate(subcrate, level + 1, new_prefix, is_last_subcrate)
+    
+    for i, crate in enumerate(crates):
+        is_last = i == len(crates) - 1
+        _print_crate(crate, 0, "", is_last)
 
 
-def load_serato_crates_OOP() -> List[SeratoCrate]:
+def load_serato_crates(progress_callback=None) -> List[SeratoCrate]:
     # look for possible locations of _Serato_ directories
-    subcrate_dirs = _get_serato_subcrates_dir()
+    subcrate_dirs = get_available_serato_subcrates_dir(progress_callback)
     serato_library = []
 
-    # for each serato directory, look for crates
-    # if crate exists, get crate from List[SeratoCrate]
-    # else, create crate
-    # add tracks into crate
-    for subcrate_dir in subcrate_dirs:
-        # look for crates in dir
-        crates = [x for x in os.listdir(subcrate_dir) if x.endswith(".crate")]
-        print(crates)
-        for crate_path in crates:
-            crate = SeratoCrate(crate_path)
-            _add_tracks_into_crate(crate)
-            serato_library.append(crate)
-            print(f"Loaded crate: {crate.to_string()}")
-            
-    print(serato_library)
+    for dir in subcrate_dirs:
+        root = load_serato_library(dir, progress_callback)
+        if root:
+            serato_library += root
+
     return serato_library
-
-
-# def _get_serato_subcrates_dir() -> str:
-#     """Get the Serato Subcrates directory path"""
-#     return os.path.join(SERATO_DIR, Crate.DIR)
-
-
-def _extract_folder_path_from_crate_path(crate_path: str) -> List[str]:
-    """
-    Extract folder path from crate file path using %% separator format
-    
-    Serato uses %% separator format for subcrates:
-    - Format: Parent%%Child.crate -> folder_path = ['Parent']
-    - Format: Folder1%%Folder2%%Crate.crate -> folder_path = ['Folder1', 'Folder2']
-    
-    Args:
-        crate_path: Full path to the crate file
-    
-    Returns:
-        List of folder names from root to parent (empty list if at root or no %% separator)
-    """
-    try:
-        # Get filename without extension
-        filename = Path(crate_path).stem
-        
-        # Check if filename contains %% separator (Serato subcrate naming)
-        if '%%' in filename:
-            # Split by %% separator
-            # Format: Parent%%Child.crate -> folder_path = ['Parent']
-            # Format: Folder1%%Folder2%%Crate.crate -> folder_path = ['Folder1', 'Folder2']
-            parts = filename.split('%%')
-            if len(parts) > 1:
-                # All parts except the last one are folder names
-                # The last part is the actual crate name
-                folder_path = parts[:-1]
-                return [folder for folder in folder_path if folder]
-        
-        # No %% separator means crate is at root level
-        return []
-    except Exception as e:
-        print(f"Error extracting folder path from {crate_path}: {e}")
-        return []
-
-
-def _load_tracks_from_paths(track_paths):
-    """Helper to load track metadata from file paths"""
-    tracks = []
-    for track_path in track_paths:
-        if os.path.exists(track_path):
-            track_info = get_audio_metadata(track_path)
-            tracks.append(track_info)
-        else:
-            # Track path might be relative or stored differently
-            track_info = get_basic_metadata(track_path)
-            tracks.append(track_info)
-    return tracks
-
-
-def _extract_crate_name(crate_path):
-    """Extract and process crate name, handling %% format"""
-    crate_name = Path(crate_path).stem
-    # If name contains %%, use only the last part as the crate name
-    # Example: "my folder%%Afro%%crate 2%%wild" -> "wild"
-    if '%%' in crate_name:
-        parts = crate_name.split('%%')
-        # The last part is always the actual crate name
-        crate_name = parts[-1] if parts else crate_name
-    return crate_name
-
-
-def load_serato_crates(progress_callback=None) -> List[Dict]:
-    """Load crates from Serato using serato_tools"""
-    playlists = []
-    
-    # Load regular crates
-    try:
-        if progress_callback:
-            progress_callback(status="", progress="Loading crates...", debug="")
-        
-        # Get all files and filter by .crate extension
-        all_files = Crate.get_serato_crate_files()
-        crate_paths = [f for f in all_files if f.endswith(Crate.EXTENSION)]
-        
-        if progress_callback:
-            progress_callback(status="", progress=f"Found {len(crate_paths)} crates", debug="")
-        
-        for idx, crate_path in enumerate(crate_paths):
-            try:
-                if progress_callback:
-                    progress_callback(
-                        status="",
-                        progress=f"Loading crate {idx + 1}/{len(crate_paths)}: {Path(crate_path).stem}",
-                        debug=""
-                    )
-                
-                # Load crate using serato_tools
-                crate = Crate(crate_path)
-                track_paths = crate.get_track_paths(include_drive=True)
-                tracks = _load_tracks_from_paths(track_paths)
-                
-                # Extract folder path from %% format and crate name
-                folder_path = _extract_folder_path_from_crate_path(crate_path)
-                crate_name = _extract_crate_name(crate_path)
-                
-                playlists.append({
-                    'name': crate_name,
-                    'path': crate_path,
-                    'type': 'serato',
-                    'track_count': len(tracks),
-                    'tracks': tracks,
-                    'is_smart': False,
-                    'folder_path': folder_path
-                })
-            except Exception as e:
-                print(f"Error loading crate {crate_path}: {e}")
-                import traceback
-                traceback.print_exc()
-        
-    except Exception as e:
-        print(f"Error listing crates: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Load smart crates
-    try:
-        if progress_callback:
-            progress_callback(status="", progress="Loading smart crates...", debug="")
-        
-        # Get all files and filter by .scrate extension
-        all_files = SmartCrate.get_serato_crate_files()
-        smart_crate_paths = [f for f in all_files if f.endswith(SmartCrate.EXTENSION)]
-        
-        if progress_callback:
-            progress_callback(status="", progress=f"Found {len(smart_crate_paths)} smart crates", debug="")
-        
-        for idx, smart_crate_path in enumerate(smart_crate_paths):
-            try:
-                if progress_callback:
-                    progress_callback(
-                        status="",
-                        progress=f"Loading smart crate {idx + 1}/{len(smart_crate_paths)}: {Path(smart_crate_path).stem}",
-                        debug=""
-                    )
-                
-                # Load smart crate using serato_tools
-                smart_crate = SmartCrate(smart_crate_path)
-                track_paths = smart_crate.get_track_paths(include_drive=True)
-                tracks = _load_tracks_from_paths(track_paths)
-                
-                # Smart crates are always at root level, no folder structure
-                crate_name = _extract_crate_name(smart_crate_path)
-                
-                playlists.append({
-                    'name': crate_name,
-                    'path': smart_crate_path,
-                    'type': 'serato',
-                    'track_count': len(tracks),
-                    'tracks': tracks,
-                    'is_smart': True,
-                    'folder_path': []  # Smart crates have no folder structure
-                })
-            except Exception as e:
-                print(f"Error loading smart crate {smart_crate_path}: {e}")
-                import traceback
-                traceback.print_exc()
-        
-    except Exception as e:
-        print(f"Error listing smart crates: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    return playlists
